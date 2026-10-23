@@ -1,12 +1,13 @@
 # VeriGrade — website
 
-Wholesale refurbished phones and laptops, Dubai. Multi-market Next.js site: 12 country
-prefixes, 5 region pages, no client-side data fetching, everything statically prerendered.
+Wholesale and retail refurbished phones, laptops and tablets, Dubai. Multi-market Next.js site:
+12 country prefixes, 5 region pages, a quote-cart (RFQ) commerce layer, and no card payments.
+Everything is statically prerendered; the only server route is the quote endpoint.
 
 - Framework: Next.js 15.5.26 (App Router), React 19, TypeScript 5.7 (strict)
 - Styling: hand-written CSS in `app/globals.css` with per-country themes. No Tailwind, no UI kit.
 - Node: `>=18.18` (developed on 22.14.0 / npm 10.9.2)
-- `npm run build` prerenders 269 pages.
+- `npm run build` prerenders 318 pages (269 marketing + shop, tablets and quote per market).
 
 ## Getting started
 
@@ -44,13 +45,16 @@ against `COUNTRY_CODES`, calls `notFound()` on an unknown code, and sets `lang`,
 
 ## Page map
 
-21 page templates × 12 countries + 12 region pages + `robots.txt` + `sitemap.xml` = 269.
+22 page templates × 12 countries + 12 region pages + `robots.txt` + `sitemap.xml` = 318.
 
 | Route | File | What it does |
 | --- | --- | --- |
-| `/{cc}` | `app/[country]/page.tsx` | Localized hero, evidence strip, categories, grade ladder, catalogue teaser, process, FAQ teaser, CTA |
+| `/{cc}` | `app/[country]/page.tsx` | Localized hero, evidence strip, categories, grade ladder, embedded phone shop (incl. iPhone), process, FAQ teaser, CTA |
+| `/{cc}/shop` | `app/[country]/shop/page.tsx` | Unified phones/laptops/tablets catalogue with wholesale/retail pricing and add-to-quote |
 | `/{cc}/phones` | `app/[country]/phones/page.tsx` | Phone catalogue with client-side filters, model-level demand notes, trade guidance |
 | `/{cc}/laptops` | `app/[country]/laptops/page.tsx` | Laptop catalogue, CPU/grade guidance, business-machine notes |
+| `/{cc}/tablets` | `app/[country]/tablets/page.tsx` | Tablet catalogue (iPad/Galaxy Tab) and the tablet-specific test points |
+| `/{cc}/quote` | `app/[country]/quote/page.tsx` | Quote cart, RFQ form, MOQ handling, fallback email/WhatsApp |
 | `/{cc}/why-verigrade` | `…/why-verigrade/page.tsx` | The five checkable claims, sourcing, and the honest limits of each |
 | `/{cc}/assurance` | `…/assurance/page.tsx` | Quality assurance: the six guarantees, the six controls, intake-to-dispatch flow, sourcing, testing, lot-level control, traceability, reported metrics, and the stated limits of every claim |
 | `/{cc}/returns` | `…/returns/page.tsx` | Returns and repair turnaround — the 14-stage sequence from claim to insured return, including quarantine, root-cause diagnosis, the second data purge, full re-test, re-grading, re-issued certificates, safe return packaging, refusals, and second-failure escalation |
@@ -71,7 +75,8 @@ against `COUNTRY_CODES`, calls `notFound()` on an unknown code, and sets `lang`,
 | `/{cc}/terms` | `…/terms/page.tsx` | Wholesale trading terms — **draft, needs counsel** |
 | `/{cc}/{region}` | `app/[country]/[region]/page.tsx` | Region overview: member markets, demand, documentation, logistics. Redirects to a member market if the host country is outside the region |
 | `/robots.txt` | `app/robots.ts` | Allow all, disallow `/api/`, points at the sitemap |
-| `/sitemap.xml` | `app/sitemap.ts` | All 264 URLs with `hreflang` alternates |
+| `/sitemap.xml` | `app/sitemap.ts` | All URLs with `hreflang` alternates |
+| `POST /api/quote` | `app/api/quote/route.ts` | Validates an RFQ and forwards it to a webhook or Resend; falls back to `mailto:`/WhatsApp |
 | 404 | `app/not-found.tsx` | Branded 404 with live nav; `noindex` |
 
 ## Data and components
@@ -80,43 +85,54 @@ against `COUNTRY_CODES`, calls `notFound()` on an unknown code, and sets `lang`,
 | --- | --- |
 | `lib/countries.ts` | 12 country configs + 5 regions: currency, locale, direction, languages, docs, demand, desk, headline, tags, theme. `countriesInRegion()`, `getRegion()`, `isCountryCode()` |
 | `lib/grades.ts` | Six tiers, battery floors, per-tier criteria, test points, cosmetic defect glossary |
-| `lib/catalogue.ts` | Phone and laptop models with indicative USD bands and per-model notes |
+| `lib/catalogue.ts` | Phone, laptop and tablet models with indicative USD bands, retail overrides and per-model notes; `displayProducts()`, `filtersFor()` |
+| `lib/commerce.ts` | Pricing model: wholesale/retail bands, MOQ, cart line identity, totals, retail uplift |
+| `lib/quote.ts` | RFQ contract shared by the client and the API route: validation, labels, reference, subject/body |
 | `lib/site.ts` | Brand, entity, contact, navigation, `GRADING_STANDARD`, `REGISTRATIONS` |
 | `components/ui.tsx` | `PageHero`, `Section`, `Card`, `Crumbs`, `Toc`, `TableWrap`, `Callout`, `KV`, `Pill`, `CtaBand`, `Step`, `Stat` |
 | `components/market.tsx` | `MarketStrip`, `CountryCard`, `ComplianceList`, `DocList`, `Registrations` |
-| `components/Header.tsx` / `Footer.tsx` / `CountrySwitcher.tsx` | Chrome; switcher keeps the current page path when the target market has it |
-| `components/Catalogue.tsx` | `'use client'` filterable grid |
-| `components/QuoteForm.tsx` | `'use client'` validated form — see below |
+| `components/Header.tsx` / `Footer.tsx` / `CountrySwitcher.tsx` | Chrome; cart button with live count; switcher keeps the current page path when the target market has it |
+| `components/CartProvider.tsx` | `'use client'` quote-cart context, persisted to `localStorage` (`verigrade.cart.v1`) |
+| `components/Catalogue.tsx` | `'use client'` filterable grid with pricing toggle |
+| `components/AddToQuote.tsx` | `'use client'` grade/storage/variant/quantity picker on each card |
+| `components/QuoteCart.tsx` | `'use client'` cart review + RFQ form, posts to `/api/quote` |
+| `components/QuoteForm.tsx` | `'use client'` longer contact-page form |
 | `components/DeviceArt.tsx`, `CertSample.tsx`, `Icon.tsx`, `Reveal.tsx` | Inline SVG, no image assets |
 
 ## Environment variables
 
-Only one, and only for canonical URLs.
-
 | Variable | Required | Default | Used by |
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | In production | `https://verigrade.ae` | `SITE.url` → canonical links, `openGraph.url`, `sitemap.xml`, `robots.txt` |
+| `QUOTE_WEBHOOK_URL` | No | — | If set, `POST /api/quote` forwards the RFQ JSON here (takes priority) |
+| `QUOTE_WEBHOOK_TOKEN` | No | — | Sent as `Authorization: Bearer …` to the webhook |
+| `RESEND_API_KEY` | No | — | If set (with `QUOTE_TO_EMAIL`), sends the RFQ by email |
+| `QUOTE_TO_EMAIL` | No | — | Inbox that receives RFQs |
+| `QUOTE_FROM_EMAIL` | No | `VeriGrade Quotes <sales@verigrade.ae>` | Verified Resend sender |
 
-Set it to the real origin before deploying, or every canonical and the sitemap will point at the
-placeholder domain.
+Set `NEXT_PUBLIC_SITE_URL` to the real origin before deploying, or every canonical and the sitemap
+will point at the placeholder domain.
 
-## Wiring up the quote form
+## Quote requests
 
-`components/QuoteForm.tsx` currently validates in the browser, then shows a success panel. **No
-request leaves the browser.** The success copy says so, and the privacy notice must not claim
-otherwise until this is built.
+The shop is a **quote cart (RFQ)**, not a checkout. There is no payment provider, no order table
+and no customer account.
 
-To make it real:
+- `lib/commerce.ts` defines the two pricing modes: wholesale (MOQ 5) and retail (MOQ 1, indicative
+  retail uplift, overridable per product via `retailFrom`/`retailTo`).
+- The basket lives in `localStorage` under `verigrade.cart.v1`, so it survives navigation and
+  country switches. Prices are stored in USD and localised at render time.
+- `POST /api/quote` validates server-side (required fields, email shape, line caps, honeypot,
+  per-IP throttle) and never trusts a client-supplied total. It forwards to `QUOTE_WEBHOOK_URL`
+  first, then Resend.
+- If neither is configured it still returns `ok: true` with `delivered: false` plus `mailto:` and
+  WhatsApp links. The UI says plainly that nothing was transmitted. **Do not remove that notice
+  until a delivery channel is configured.**
 
-1. Add `app/api/quote/route.ts` accepting `POST` JSON.
-2. Validate server-side — never trust the client. Honeypot field, rate limit, and length caps.
-3. Forward to a transactional provider (Postmark, Resend, SES) or a CRM (HubSpot), or both.
-4. Replace the `setSent(true)` branch in `onSubmit` with a `fetch` and handle failure states
-   (retry, offline, spam rejection).
-5. Update the privacy notice to describe the new processor, its location and its retention.
-
-The form posts these fields: company, contact name, email, phone, WhatsApp, country, model,
-grade, quantity, monthly volume, destination port, Incoterm, notes, and consent.
+Before launch: configure one delivery channel, test a real submission from each market, and update
+the privacy notice to name the processor, its location and its retention period. `QuoteForm.tsx`
+on the contact page still uses a browser-only success state; wire it to the same endpoint or remove
+its fallback copy.
 
 ## Deployment
 
@@ -129,7 +145,7 @@ NEXT_PUBLIC_SITE_URL=https://your-domain npm run build
 Post-build checks:
 
 - `curl -I https://your-domain/` → 307 to `/ae`
-- `curl https://your-domain/sitemap.xml` → 264 URLs, correct origin
+- `curl https://your-domain/sitemap.xml` → all URLs, correct origin
 - `curl https://your-domain/robots.txt` → sitemap line
 - `curl -I https://your-domain/sa` → 200, `dir="rtl"` in the markup
 - `curl -I https://your-domain/xx` → 404
@@ -170,7 +186,9 @@ but that only helps if someone reads the page before it goes live.
 
 **Technical**
 
-- [ ] Quote form endpoint built (above) and the privacy notice updated to match
+- [ ] Quote delivery channel configured (`QUOTE_WEBHOOK_URL` or Resend) and a real RFQ tested
+      end-to-end from at least one market; privacy notice updated to match
+- [ ] Contact-page `QuoteForm` wired to `/api/quote` (or its browser-only success copy removed)
 - [ ] Analytics and Search Console if wanted
 - [ ] Real product photography, replacing the inline SVG device art
 - [ ] `npm audit` reviewed to completion — the earlier run exceeded a 180s timeout and the
